@@ -1,4 +1,5 @@
 import sys
+import os
 import random
 import LogHours
 from RunGame import GameRun, LogTime
@@ -14,6 +15,8 @@ class MyWidget(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         self.app_path = None
+        self.icon_path = "" # 128x128
+        self.setWindowIcon(QtGui.QIcon(self.icon_path))
         self.setWindowTitle("Sky Launcher")
         Total_Hours = read_logged_hours(log_file_path)
 
@@ -33,9 +36,11 @@ class MyWidget(QtWidgets.QWidget):
 
     def GB(self):
         if self.app_path:
+            widget.hide()
             elapsed_time = GameRun(self.app_path)
             LogTime(elapsed_time)
             self.Hours_Text.setText(read_logged_hours(log_file_path))
+            widget.show()
         else:
             # Show a warning message box
             QtWidgets.QMessageBox.warning(
@@ -49,7 +54,12 @@ class MyWidget(QtWidgets.QWidget):
         # Open the file dialog and get the selected file path
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select a File")
         if file_path:
-            self.gamepathtext.setText(file_path)
+            #Get File name and remove extention (.exe ect..)
+            file_name = os.path.basename(file_path)
+            game_name, _ = os.path.splitext(file_name)
+
+            #set text for game name and sets the app_path
+            self.gamepathtext.setText(game_name.capitalize())
             self.app_path = file_path
 
     
