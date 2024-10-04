@@ -1,2 +1,5 @@
 __pycache__
 logged_hours.txt
+.vscode/settings.json
+logged_hours.json
+games_config.json

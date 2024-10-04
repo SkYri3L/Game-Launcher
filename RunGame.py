@@ -1,15 +1,29 @@
 import subprocess
 import time
 import os
+import webbrowser
+from LogHours import time_log
 
-def GameRun(app_path):
-    """Launch the application and return its process."""
+def Launch(gamepaths, steampath, steamexepath, steam_app_id):
+    # Launch the application
+    try:
+        if steampath is not None:
+            process = subprocess.Popen([steamexepath, steampath])
+            # subprocess.run(['xdg-open', steam_url], check=True)  # For Linux
+            # subprocess.run(['open', steam_url], check=True)  # For macOS
+            print(process)
+            print(f"Started application: {steam_app_id}")
+        else:
+            process = subprocess.Popen(gamepaths)
+            print(process)
+            print(f"Started application: {gamepaths}")
+    except Exception as e:
+        print(f'An Error Occurred: {e}')
+        exit()
+
+
     # Start the timer
     start_time = time.time()
-
-    # Launch the application
-    process = subprocess.Popen(app_path)
-    print(f"Started application: {app_path}")
 
     # Monitor while the application is running
     while True:
@@ -25,7 +39,7 @@ def GameRun(app_path):
 
     return elapsed_time
 
-def LogTime(elapsed_time):
-    with open("logged_hours.txt", "a") as log_file:
-        log_file.write(f"Time spent: {elapsed_time:.2f} seconds\n")
 
+def LogTime(app_id, app_name, elapsed_time):
+    """Logs the time spent on a specific application."""
+    time_log(app_id, app_name, elapsed_time, "logged_hours.json")

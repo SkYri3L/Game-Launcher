@@ -2,74 +2,289 @@ import sys
 import os
 import random
 import LogHours
-from RunGame import GameRun, LogTime
+import subprocess
+import ctypes
+from RunGame import Launch, LogTime
 from LogHours import read_logged_hours
 from PySide6 import QtCore, QtWidgets, QtGui
+import json
+import uuid
+
+log_file_path = "logged_hours.json"
+config_file_path = "games_config.json"
+setting_file_path = "Settings_config.json"
+steamexepath = r"D:\Games\Steam\Steam.exe"
 
 
-log_file_path = "logged_hours.txt"
-Hours = 0.00
+def is_admin():
+    """Check if the script is running with admin privileges."""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+def run_as_admin():
+    """Relaunch the script with admin privileges."""
+    # Get the current Python executable
+    python_executable = sys.executable
+    # Build the command to run the script with admin rights
+    command = f'"{python_executable}" "{__file__}"'
+    # Use ShellExecute to run the command as an administrator
+    ctypes.windll.shell32.ShellExecuteW(None, "runas", python_executable, __file__, None, 1)
 
 
 class MyWidget(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
-        self.app_path = None
-        self.icon_path = "" # 128x128
-        self.setWindowIcon(QtGui.QIcon(self.icon_path))
+
+        self.gamepaths = self.load_json(config_file_path, default={})  # Dictionary to store game paths
+        self.settings = self.load_json(setting_file_path, default={'theme': 'dark'})
+        self.theme = self.settings.get('theme', 'light')
+
+        self.setWindowIcon(QtGui.QIcon('')) # Set Icon Path
         self.setWindowTitle("Sky Launcher")
-        Total_Hours = read_logged_hours(log_file_path)
 
 
-        self.addgame = QtWidgets.QPushButton("Set Game file path")
-        self.GameButton = QtWidgets.QPushButton("Run Game!")
-        self.gamepathtext = QtWidgets.QLabel("No Game Path", alignment=QtCore.Qt.AlignCenter)
-        self.Hours_Text = QtWidgets.QLabel(Total_Hours, alignment=QtCore.Qt.AlignCenter)
+        self.settings_button = QtWidgets.QPushButton("Settings")
+        self.SetPath = QtWidgets.QPushButton("Add New Game")
+        self.GameButtonsLayout = QtWidgets.QVBoxLayout()  # Layout to hold game buttons
+        self.GameNameText = QtWidgets.QLabel("No Game Path", alignment=QtCore.Qt.AlignCenter)
+        self.Empty = QtWidgets.QLabel("")
 
         self.layout = QtWidgets.QVBoxLayout(self)
-        self.layout.addWidget(self.addgame)
-        self.layout.addWidget(self.GameButton)
-        self.layout.addWidget(self.gamepathtext)
-        self.layout.addWidget(self.Hours_Text)
-        self.GameButton.clicked.connect(self.GB)
-        self.addgame.clicked.connect(self.open_file_dialog)
+        self.layout.addWidget(self.settings_button)
+        self.layout.addWidget(self.SetPath)
+        self.layout.addLayout(self.GameButtonsLayout)  # Add dynamic buttons here
+        self.layout.addWidget(self.Empty)
 
-    def GB(self):
-        if self.app_path:
-            widget.hide()
-            elapsed_time = GameRun(self.app_path)
-            LogTime(elapsed_time)
-            self.Hours_Text.setText(read_logged_hours(log_file_path))
-            widget.show()
+        self.settings_button.clicked.connect(self.open_settings)
+        self.SetPath.clicked.connect(self.add_new_game)
+
+        # Create game buttons for already saved games
+        self.create_game_buttons()
+
+        self.apply_theme()
+
+    def load_json(self, path, default=None):
+        """Helper to load JSON data."""
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return default if default is not None else {}
+
+    def save_json(self, path, data):
+        """Helper to save JSON data."""
+        with open(path, "w") as f:
+            json.dump(data, f, indent=4)
+
+    def open_settings(self):
+        Dialog  = QtWidgets.QDialog(self)
+        Dialog.setWindowTitle("Settings")
+        Slayout = QtWidgets.QVBoxLayout()
+
+        Theme_Lable = QtWidgets.QLabel("Select Theme:")
+        Slayout.addWidget(Theme_Lable)
+
+        theme_combo = QtWidgets.QComboBox()
+        theme_combo.addItems(["Dark", "Light"])
+        theme_combo.setCurrentText(self.theme.capitalize())
+        Slayout.addWidget(theme_combo)
+
+        Sapply_button = QtWidgets.QPushButton("Apply", clicked=lambda: self.change_theme(theme_combo.currentText().lower()))
+        Slayout.addWidget(Sapply_button)
+
+        Dialog.setLayout(Slayout)
+        Dialog.exec()
+
+    def apply_theme(self):
+        if self.theme == 'light':
+            self.setStyleSheet("""
+                QWidget { background-color: white; color: black; }
+                QPushButton { background-color: lightgray; }
+            """)
         else:
-            # Show a warning message box
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Warning",
-                "Please set the game file path first.",
-                QtWidgets.QMessageBox.Ok
-            )
+            self.setStyleSheet("""
+                QWidget { background-color: #2e2e2e; color: white; }
+                QPushButton { background-color: #4e4e4e; }
+            """)
 
-    def open_file_dialog(self):
-        # Open the file dialog and get the selected file path
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select a File")
-        if file_path:
-            #Get File name and remove extention (.exe ect..)
+    def change_theme(self, selected_theme):
+        self.theme = selected_theme
+        self.apply_theme()
+        self.settings['theme'] = self.theme
+        self.save_json(setting_file_path, self.settings)
+
+    def add_new_game(self):
+        # Ask if the user wants to add a Steam game
+        reply = QtWidgets.QMessageBox.question(
+            self, 'Steam Game', 'Is this a Steam game?', 
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, 
+            QtWidgets.QMessageBox.No
+        )
+        
+        steam_app_id = None  # Default to None, will only store this if it's a Steam game
+        
+        if reply == QtWidgets.QMessageBox.Yes:
+            # If the user selects Yes, prompt for the Steam App ID
+            steam_app_id, ok = QtWidgets.QInputDialog.getText(
+                self, 'Steam App ID', 'Enter the Steam App ID for this game:'
+            )
+            if not ok or not steam_app_id.strip():
+                # If the user cancels or provides an invalid ID, stop the process
+                QtWidgets.QMessageBox.warning(self, 'Error', 'You must enter a valid Steam App ID.')
+                return
+        
+        else:
+            # If the user selects No, proceed with file selection dialog for non-Steam games
+            file_dialog = QtWidgets.QFileDialog(self)
+            file_dialog.setFileMode(QtWidgets.QFileDialog.ExistingFile)
+            if file_dialog.exec():
+                file_path = file_dialog.selectedFiles()[0]
+            else:
+                # If the user cancels the file dialog, stop the process
+                return
+        
+        # Get the game name either from Steam or the file name
+        if steam_app_id:
+            game_name = f"Steam Game (App ID: {steam_app_id})"
+            game_path = None  # Steam games don't require a local path
+        else:
+            # For non-Steam games, use the file name to generate a game name
             file_name = os.path.basename(file_path)
             game_name, _ = os.path.splitext(file_name)
+            game_path = file_path
+        
+        # Generate a unique ID for the game
+        game_id = str(uuid.uuid4())
+        
+        # Add the new game to the dictionary and save
+        self.gamepaths[game_id] = {
+            "name": game_name,
+            "path": game_path,
+            "steam_app_id": steam_app_id  # Add Steam App ID only if applicable
+        }
+        
+        self.save_json(config_file_path, self.gamepaths)
+        
+        # Add a new button for the new game
+        self.add_game_button(game_id, game_name, game_path, steam_app_id)
 
-            #set text for game name and sets the app_path
-            self.gamepathtext.setText(game_name.capitalize())
-            self.app_path = file_path
+    def create_game_buttons(self):
+        # Clear existing buttons safely
+        while self.GameButtonsLayout.count():
+            item = self.GameButtonsLayout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+            elif item.layout() is not None:
+                self.clear_layout(item.layout())
 
-    
+        # Create buttons for each saved game
+        for game_id, game_data in self.gamepaths.items():
+            game_name = game_data['name']
+            game_path = game_data['path']
+            steam_app_id = game_data.get('steam_app_id', None)  # Get Steam App ID if present
+            self.add_game_button(game_id, game_name, game_path, steam_app_id)
 
+    def clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                self.clear_layout(item.layout())
+
+    def add_game_button(self, game_id, game_name, game_path, steam_app_id=None):
+        # Create a new layout for each button group
+        button_layout = QtWidgets.QHBoxLayout()
+
+        play_button = QtWidgets.QPushButton(f"Play {game_name}")
+        rename_button = QtWidgets.QPushButton("Rename")
+
+        # Set button functionality
+        play_button.clicked.connect(lambda: self.run_game(game_id, game_name, game_path, steam_app_id))
+        rename_button.clicked.connect(lambda: self.rename_game(game_id, game_name))
+
+        # Get the logged hours for all applications
+        logged_hours_str = read_logged_hours(log_file_path)  # This is a formatted string
+
+        # Extract hours for the specific game
+        logged_hours = '0 hours'  # Default if the game is not found
+        for line in logged_hours_str.split('\n'):
+            if f"Application: {game_name}" in line:
+                # Extract the total hours from the line
+                logged_hours = line.split("Total time: ")[1].strip()  # Get the hours part
+                break
+
+        hours_label = QtWidgets.QLabel(f"Hours Played: {logged_hours}")
+
+        # Display the Steam App ID if available
+        steam_label = QtWidgets.QLabel(f"Steam App ID: {steam_app_id}") if steam_app_id else QtWidgets.QLabel("")
+
+        # Add widgets to the layout
+        button_layout.addWidget(play_button)       # Add Play button first
+        button_layout.addWidget(hours_label)       # Add hours label in the middle
+        button_layout.addWidget(steam_label)      # Add Steam App ID lable
+        button_layout.addWidget(rename_button)     # Add Rename button last
+
+        # Now add this new button layout to the GameButtonsLayout   
+        self.GameButtonsLayout.addLayout(button_layout)
+
+    def run_game(self, game_id, game_name, gamepaths, steam_app_id=None):
+        # Hide the widget
+        widget.hide()
+
+        if steam_app_id:
+            # If it's a Steam game, launch it using Steam and the App ID
+            steampath = f"steam://run/{steam_app_id}"
+            elapsed_time = Launch(gamepaths, steampath, steamexepath, steam_app_id)
+        else:
+            # Otherwise, launch the game normally
+            elapsed_time = Launch(gamepaths, None, None, None)
+
+        # Log the time and update the UI
+        LogTime(game_id, game_name, elapsed_time)
+        read_logged_hours(log_file_path)
+        self.create_game_buttons() #refresh for hours played
+        widget.show()
+
+    def rename_game(self, game_id, old_game_name):
+        # Ask for new game name
+        new_game_name, ok = QtWidgets.QInputDialog.getText(
+            self, "Rename Game", "Enter new name for the game:", 
+            QtWidgets.QLineEdit.Normal, old_game_name
+        )
+        
+        if ok and new_game_name.strip():
+            # Ensure the new name is not empty and different from the old name
+            if new_game_name != old_game_name:
+                # Check if any game already has the new name (using names within the dictionary)
+                if any(game_data['name'] == new_game_name for game_data in self.gamepaths.values()):
+                    QtWidgets.QMessageBox.warning(self, "Error", 
+                        "A game with this name already exists. Please choose another name.")
+                    return
+                
+                # Update the game name for the specific game_id
+                self.gamepaths[game_id]['name'] = new_game_name
+                self.save_json(config_file_path, self.gamepaths)
+                try:
+                    # Refresh the UI to show the updated game name
+                    self.create_game_buttons()  # Refresh buttons
+                except Exception as e:
+                    print(f'An Error occurred: {e}')
+            else:
+                QtWidgets.QMessageBox.warning(self, "Warning", 
+                    "The new name must be different from the old name.")
 
 if __name__ == "__main__":
-    app = QtWidgets.QApplication([])
+    #if not is_admin():
+    #    print("Requesting administrative privileges...")
+    #    run_as_admin()
+    #else:
+        app = QtWidgets.QApplication([])
 
-    widget = MyWidget()
-    widget.resize(800, 600)
-    widget.show()
+        widget = MyWidget()
+        widget.resize(800, 600)
+        widget.show()
 
-    sys.exit(app.exec())
+        sys.exit(app.exec())
