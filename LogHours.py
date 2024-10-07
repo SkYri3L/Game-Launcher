@@ -14,13 +14,18 @@ def read_logged_hours(log_file_path):
         # If the file exists but is corrupted or empty, initialize it
         app_times = {}
 
-    result = ""
+    hours_result = ""
+    min_result = ""
     for app_id, data in app_times.items():
         game_name = data['name']
-        total_time = data['total_time'] / 3600  # Convert seconds to hours
-        result += f"Application: {game_name}, Total time: {total_time:.2f} hours\n"
 
-    return result.strip() if result else "No logged hours yet."
+        min_time = data['total_time'] / 60
+        min_result += f"Application: {game_name}, Total time: {min_time:.2f} Mins\n"
+
+        hours_time = data['total_time'] / 3600  # Convert seconds to hours
+        hours_result += f"Application: {game_name}, Total time: {hours_time:.2f} hours\n"
+
+    return hours_result.strip() if hours_result else "No logged hours yet.", min_result.strip() if min_result else "No logged minutes yet."
 
 def time_log(app_id, app_name, elapsed_time, log_file_path):
     """Logs the total time spent on a specific application to the JSON file."""

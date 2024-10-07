@@ -34,9 +34,11 @@ def run_as_admin():
 
 
 class MyWidget(QtWidgets.QWidget):
+    #ADD CLASSES FOR  EACH FUNCTION
     def __init__(self):
         super().__init__()
 
+        self.hourspath = self.load_json(log_file_path, default={})
         self.gamepaths = self.load_json(config_file_path, default={})  # Dictionary to store game paths
         self.settings = self.load_json(setting_file_path, default={'theme': 'dark'})
         self.theme = self.settings.get('theme', 'light')
@@ -46,19 +48,22 @@ class MyWidget(QtWidgets.QWidget):
 
 
         self.settings_button = QtWidgets.QPushButton("Settings")
-        self.SetPath = QtWidgets.QPushButton("Add New Game")
+        self.SetGamePath = QtWidgets.QPushButton("Add New Game")
         self.GameButtonsLayout = QtWidgets.QVBoxLayout()  # Layout to hold game buttons
         self.GameNameText = QtWidgets.QLabel("No Game Path", alignment=QtCore.Qt.AlignCenter)
         self.Empty = QtWidgets.QLabel("")
 
-        self.layout = QtWidgets.QVBoxLayout(self)
-        self.layout.addWidget(self.settings_button)
-        self.layout.addWidget(self.SetPath)
-        self.layout.addLayout(self.GameButtonsLayout)  # Add dynamic buttons here
-        self.layout.addWidget(self.Empty)
+        self.mainbuttonlayout = QtWidgets.QHBoxLayout()
+        self.mainbuttonlayout.addWidget(self.SetGamePath)
+        self.mainbuttonlayout.addWidget(self.settings_button)
 
-        self.settings_button.clicked.connect(self.open_settings)
-        self.SetPath.clicked.connect(self.add_new_game)
+        self.MAINlayout = QtWidgets.QVBoxLayout(self)
+        self.MAINlayout.addLayout(self.mainbuttonlayout)
+        self.MAINlayout.addLayout(self.GameButtonsLayout)  # Add dynamic buttons here
+        self.MAINlayout.addWidget(self.Empty)
+
+        self.settings_button.clicked.connect(self.open_launcher_settings)
+        self.SetGamePath.clicked.connect(self.add_new_game)
 
         # Create game buttons for already saved games
         self.create_game_buttons()
@@ -78,7 +83,7 @@ class MyWidget(QtWidgets.QWidget):
         with open(path, "w") as f:
             json.dump(data, f, indent=4)
 
-    def open_settings(self):
+    def open_launcher_settings(self):
         Dialog  = QtWidgets.QDialog(self)
         Dialog.setWindowTitle("Settings")
         Slayout = QtWidgets.QVBoxLayout()
@@ -96,6 +101,48 @@ class MyWidget(QtWidgets.QWidget):
 
         Dialog.setLayout(Slayout)
         Dialog.exec()
+
+    def open_game_settings(self,  game_id, game_name):
+        GSDialog  = QtWidgets.QDialog(self)
+        GSDialog.setWindowTitle("Game Settings")
+        GSlayout = QtWidgets.QVBoxLayout()
+        print("Game Settings")
+
+        GSbuttonlayout = QtWidgets.QHBoxLayout()
+
+        GSremovegame = QtWidgets.QPushButton("Remove Game", clicked=lambda: self.removegame(game_id, game_name))
+        GSrenamebutton = QtWidgets.QPushButton("Rename Game", clicked=lambda: self.rename_game(game_id, game_name))
+        GSbuttonlayout.addWidget(GSrenamebutton)
+        GSbuttonlayout.addWidget(GSremovegame)
+
+        GSlayout.addWidget(QtWidgets.QLabel("Game Settings"))
+        GSlayout.addLayout(GSbuttonlayout)
+        
+        GSDialog.setLayout(GSlayout)
+        GSDialog.exec()
+
+    def removegame(self, game_id, game_name):
+        # Confirm with the user before removing the game
+        reply = QtWidgets.QMessageBox.question(
+            self, 'Remove Game', f'Are you sure you want to remove {game_name}?',
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, 
+            QtWidgets.QMessageBox.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.Yes:
+            # Remove the game from the dictionary
+            if game_id in self.gamepaths:
+                del self.gamepaths[game_id]
+                del self.hourspath[game_id]
+                self.save_json(config_file_path, self.gamepaths)  # Save the updated gamepaths
+
+                # Refresh the game buttons
+                self.create_game_buttons()
+
+                # Notify the user
+                QtWidgets.QMessageBox.information(self, 'Game Removed', f'{game_name} has been removed.')
+            else:
+                QtWidgets.QMessageBox.warning(self, 'Error', f'{game_name} could not be found.')
 
     def apply_theme(self):
         if self.theme == 'light':
@@ -199,33 +246,45 @@ class MyWidget(QtWidgets.QWidget):
         button_layout = QtWidgets.QHBoxLayout()
 
         play_button = QtWidgets.QPushButton(f"Play {game_name}")
-        rename_button = QtWidgets.QPushButton("Rename")
+        game_settings_button = QtWidgets.QPushButton("...")
 
         # Set button functionality
         play_button.clicked.connect(lambda: self.run_game(game_id, game_name, game_path, steam_app_id))
-        rename_button.clicked.connect(lambda: self.rename_game(game_id, game_name))
+        game_settings_button.clicked.connect(lambda: self.open_game_settings(game_id, game_name))
 
         # Get the logged hours for all applications
-        logged_hours_str = read_logged_hours(log_file_path)  # This is a formatted string
+        hours_result, min_result = read_logged_hours(log_file_path)
 
         # Extract hours for the specific game
         logged_hours = '0 hours'  # Default if the game is not found
-        for line in logged_hours_str.split('\n'):
+        for line in hours_result.split('\n'):
             if f"Application: {game_name}" in line:
                 # Extract the total hours from the line
                 logged_hours = line.split("Total time: ")[1].strip()  # Get the hours part
                 break
 
-        hours_label = QtWidgets.QLabel(f"Hours Played: {logged_hours}")
+        for line in min_result.split('\n'):
+            if f"Application: {game_name}" in line:
+                # Extract the total minutes from the line
+                logged_minutes = line.split("Total time: ")[1].strip()
+                break
+        
+
 
         # Display the Steam App ID if available
         steam_label = QtWidgets.QLabel(f"Steam App ID: {steam_app_id}") if steam_app_id else QtWidgets.QLabel("")
 
         # Add widgets to the layout
         button_layout.addWidget(play_button)       # Add Play button first
-        button_layout.addWidget(hours_label)       # Add hours label in the middle
-        button_layout.addWidget(steam_label)      # Add Steam App ID lable
-        button_layout.addWidget(rename_button)     # Add Rename button last
+        # Display minutes only if hours are less than 1 hour
+        if float(logged_hours.split()[0]) < 1:
+            min_label = QtWidgets.QLabel(f"Minutes Played: {logged_minutes}")
+            button_layout.addWidget(min_label)
+        elif float(logged_hours.split()[0]) >= 1:
+            hours_label = QtWidgets.QLabel(f"Hours Played: {logged_hours}")
+            button_layout.addWidget(hours_label)
+        button_layout.addWidget(steam_label) # Add Steam App ID
+        button_layout.addWidget(game_settings_button) # Add Rename button last
 
         # Now add this new button layout to the GameButtonsLayout   
         self.GameButtonsLayout.addLayout(button_layout)
@@ -271,10 +330,12 @@ class MyWidget(QtWidgets.QWidget):
                     # Refresh the UI to show the updated game name
                     self.create_game_buttons()  # Refresh buttons
                 except Exception as e:
-                    print(f'An Error occurred: {e}')
-            else:
+                    print(f'!!An Error occurred: {e}!!')
+            elif new_game_name == new_game_name:
                 QtWidgets.QMessageBox.warning(self, "Warning", 
                     "The new name must be different from the old name.")
+            else:
+                QtWidgets.QMessageBox.warning(self, 'Error', f'{old_game_name} could not be found.')
 
 if __name__ == "__main__":
     #if not is_admin():
